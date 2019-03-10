@@ -1,0 +1,1212 @@
+---
+title: "LM vs ML"
+output:
+  rmdformats::material:
+    highlight: kate
+    self_contained: true
+    code_folding: hide
+    thumbnails: false
+    gallery: true
+    cards: false
+---
+<font size="5"> <span style="color:#2f4f4f">
+Does Regression hold it's own in the age of Machine Learning?  
+Harish M
+</span> </font>  
+
+<!-- Custom CSS styles -->
+<style>
+div.grey { 
+background-color:#eeeeee; 
+border-radius: 5px; 
+padding: 20px;
+}
+.collapsibleHn {
+background-color: #eeeeee;
+color: #2f4f4f;
+cursor: pointer;
+width: 100%;
+border: none;
+padding: 18px;
+text-align: left;
+font-size: 20px;
+}
+.activeHn, .collapsibleHn:hover {
+background-color: #dedede;
+}
+.collapsibleHn:after {
+content: '\002B';
+color: #2f4f4f;
+float: right;
+font-size: 22;
+margin-left: 10px;
+}
+.activeHn:after {
+content: "\2212";
+}
+.contentHn {
+max-height: 0;
+overflow: hidden;
+transition: max-height 0.5s ease-out;
+}
+</style>
+<!-- End of CSS styles -->
+
+# Introduction
+
+Classification is one of the two common supervised machine learning techniques, 
+used to predict the outcome of an observation. It can be a binary "yes" or "no" like
+in the case of this analysis or a multinomial a/b/c/d/... categorization. Logistic
+Regression helps us to achieve this, and, without getting technical (which we will
+in the later sections), the idea is to build a linear equation of predictor variables,
+that tells us the probability of the outcome of each observation. <br><br>
+
+In the last decade however, machine learning algorithms have become extremely 
+popular owing to the simplicity of the models and the minimal tweaking required
+to fit them in a wide array of problems. A few hours is all it takes to fit a
+random forest model that works pretty well with minimal business know-how.
+This being the case, it was surprising to learn that regression models are still 
+the most used data science method according to <u><a href="http://customerthink.com/top-machine-learning-and-data-science-methods-used-at-work/"target="_blank">Kaggle survey</a></u>. 
+42% of the Kaggle users reported to use GLM at work, compared to 34% who
+use Random Forests. <br><br>
+
+<div class = "grey"><font size = +1> <i> 
+Granted, logistic regression is easy to use and has high interpretability, but do
+they produce comparable results to modern and advanced techniques like bagging and
+boosting? This analysis sets out to explore that question. 
+</i></font></div><br>
+
+The <u><a href="https://www.ibm.com/communities/analytics/watson-analytics-blog/hr-employee-attrition/"target="_blank">IBM employee attrition dataset</a></u> is used in this report to predict whether or 
+not an employee quits. Beginning with a basic model, the dataset is run through decision 
+trees, random forests, boosting machines, and then tuned through a hypergrid.
+The model performance is evaluated based on confusion matrix output and area under
+the ROC curve.
+
+# A Few Things To Note
+
+The libraries in the code-block below will be required to run the analysis in R.
+Markdown knitting options are also being set globally.
+```{r message=FALSE, warning=FALSE}
+library(dplyr) #The gasoline to the caR
+library(knitr) #Produce this HTML doc
+library(rmdformats) #Produce this HTML doc
+library(DT) #Print HTML datatables
+library(rsample) #Sampling data into train and test
+library(readxl) #Data import
+library(boot) #Cross validate the model
+library(ggplot2) #Visualization
+library(plotly) #Interactive Visualization
+library(tibble) #Data manipulation
+library(gridExtra) #Print ggplots together
+library(Hmisc) #Correlation
+library(corrplot) #Correlation plot 
+library(knitr) #Generate HTML doc
+library(caret) #Classification Tools
+library(ROCR) #Calculate ROC area
+library(pROC) #Plot ROC curve
+library(glmnet) #Regularized regressions
+library(rpart) #Decision trees
+library(rpart.plot) #Plot them
+library(gganimate) #Animated ggplots
+library(ipred) #Decision tree Bagging
+library(ranger) #Random Forest
+library(gbm) #Gradient Boosting
+
+# Setting Global Options for the page render
+options(max.print = "75")
+opts_knit$set(width = "75")
+
+# Globally controlling code blocks
+opts_chunk$set(message = FALSE, # prevent messages 
+               warning = FALSE, # prevent warnings
+               fig.align = "center", # graph position
+               fig.height = 4, # graph default height and width
+               fig.width = 6)
+
+# DT::datatable parameters
+options(DT.options = list(paging = FALSE, # disable pagination
+                          scrollY = "200px", # enable vertical scrolling
+                          scrollX = TRUE, # enable horizontal scrolling
+                          scrollCollapse = TRUE,
+                          autoWidth = TRUE, # centering the table output
+                          ordering = FALSE, # disable sorting data
+                          dom = "t",  # display just the table
+                          initComplete = JS("function(settings, json) {" ,
+                                            "$(this.api().table().header()).css(
+                                            {'color': '#888888'});",
+                                            "}")))
+```
+
+The performance of each model is evaluated using the following parameters. A brief
+explanation is presented.<br><br>
+
+* <span style="color:#55669e ">Confusion Matrix</span> - A 2x2 table showing the actual vs predicted results. Here's an example.<br>
+<center>![](`r "https://github.com/mr-hn/classificationTech/blob/master/conf_matrix.jpg?raw=true"`){width=30%}</center><br>
+$TN = 50$ - True Negative is number of negatives predicted correct. $FP = 10$ - False
+Positive is the number of negatives incorrectly tagged as positive.
+
+* <span style="color:#55669e ">Accuracy</span> - The ratio of observations predicted
+correct. From the confusion matrix,
+<br> <center>$$accuracy =  \frac{TN + TP}{n}$$</center> <br>
+
+* <span style="color:#55669e ">Sensitivity</span> - Also called True Positive 
+Rate, it measures the proportion of actual positives that are correctly identified.
+<br> <center>$$sensitivity =  \frac{TP}{TP + FN}$$</center> <br>
+
+* <span style="color:#55669e ">Specificity</span> - True Negative Rate
+<br> <center>$$specificity =  \frac{TN}{TN + FP}$$</center> <br>
+
+* <span style="color:#55669e ">Cost</span> - This is a custom parameter, a measure 
+of weighted accuracy with emphasis on False Negatives over False Positives.
+The percentage of employees who quit is much smaller when compared to those who 
+didn't. Thus, it's imperative to give more importance to the true negative rate. At
+the same time, too many false positives could cost the organization monetary
+loss. An optimal balance needs to be achieved and this can get subjective. In
+this analysis the weight on FN is set to 10. Cost must be low, and ideally zero.
+<br>
+<center>$$cost = \frac{FP + (10 * FN)}{n}$$</center>
+
+The predicted results of most of the models for our dataset return the probabilities of an 
+employee quitting - a number between 0 to 1, with 1 indicating "yes". A threshold 
+needs to be set on the probability to categorize each row. The threshold generally 
+depends on the class balance and cost function. If the ratio of yes/no is equal, 
+a threshold of 0.5 will work well. But if like in our case, if there is imbalance, 
+with a smaller proportion of "no", threshold should ideally be much lower.<br><br>
+
+* <span style="color:#55669e ">Area under the ROC curve</span> - Now that it's
+understood the perceived performance of a model could vary based on the threshold,
+the Receiver Operating Characteristic curve measures the overall performance
+across all values of the threshold. The curve is the plot of Sensitivity
+on the y-axis, and 1 - Specificity on the x-axis for threshold between 0 to 1.
+$False\ Positive\ Rate$ is 1 - Specificity. Higher the area under this curve,
+higher the performance, with area > 0.7 accepted to have adequate discriminant power. 
+A sample plot is presented below.
+<center>![](`r "https://github.com/mr-hn/classificationTech/blob/master/roc_curve.png?raw=true"`){width=40%}</center><br>
+It is to be noted that throughout this report, the ROC area of the testing sample
+will be used to compare models.
+<br><br>
+
+The two functions written below will be used by all the models to evaluate these parameters. <br><br>
+
+The `conf_matrix` function takes in the predicted probabilities and the threshold,
+and returns the confusion matrix and the evaluation parameters.
+```{r}
+conf_matrix <- function(prediction, threshold = 0.5, fn_weight = 10) {
+  
+  if (class(prediction) == "factor") {
+    matrix_list <- confusionMatrix(prediction, 
+                                   data_test$attrition) 
+  } else {
+    matrix_list <- confusionMatrix(as.factor(ifelse(prediction > threshold, 1, 0)), 
+                                   data_test$attrition)
+  }
+  
+  matrix <- matrix_list[2] %>% as.data.frame() %>% spread(table.Prediction, table.Freq)
+  rownames(matrix) <- c("actual_no", "actual_yes")
+  matrix[,1] <- NULL
+  colnames(matrix) <- c("predicted_no", "predicted_yes")
+  
+  eval_params <- data.frame(
+    accuracy = round(matrix_list[["overall"]][[1]], 3),
+    sensitivity = round(matrix_list[["byClass"]][[1]], 3),
+    specificity = round(matrix_list[["byClass"]][[2]], 3),
+    false_positives = matrix[1,2],
+    false_negatives = matrix[2,1],
+    cost = round(((1 * matrix[1,2] + fn_weight * matrix[2,1]) / 
+                    (nrow(data_test))), 3))
+  return(list(matrix = matrix, eval_params = eval_params))
+}
+```
+
+As explained, threshold is not a constant and therefore it could be tuned to
+improve performance. Moreover, different models could return probability scores 
+that are interpretable differently. The function `thres_tune` takes in the predicted
+probabilities and calculates evaluation parameters for threshold values between
+0.05 to 0.5, separated by 0.01. `conf_matrix` is internally called.
+```{r}
+thres_tune <- function(prediction) {
+  
+  thres_grid <- expand.grid(threshold = seq(0.05, 0.5, by = 0.01),
+                            accuracy = 0,
+                            false_positives = 0,
+                            false_negatives = 0,
+                            sensitivity = 0,
+                            specificity = 0,
+                            cost = 0)
+  for (i in 1:nrow(thres_grid)) {
+    
+    thres_conf_matrix <- conf_matrix(prediction, thres_grid$threshold[i])
+    
+    thres_grid$accuracy[i] <- thres_conf_matrix$eval_params["accuracy"][[1]]
+    thres_grid$false_positives[i] <- thres_conf_matrix$eval_params["false_positives"][[1]]
+    thres_grid$false_negatives[i] <- thres_conf_matrix$eval_params["false_negatives"][[1]]
+    thres_grid$sensitivity[i] <- thres_conf_matrix$eval_params["sensitivity"][[1]]
+    thres_grid$specificity[i] <- thres_conf_matrix$eval_params["specificity"][[1]]
+    thres_grid$cost[i] <- thres_conf_matrix$eval_params["cost"][[1]]
+  }
+  return(thres_grid %>% dplyr::arrange(cost))
+}
+```
+
+# Data Prep
+
+The data is imported and categorical fields are typed correctly. Columns with no
+information are dropped. A sample of the data is presented below. Explanations 
+for the columns of the data is available in sheet 2 of the <u><a href="https://github.com/mr-hn/classificationTech/raw/master/Employee-Attrition.xlsx">excel file</a></u>.
+
+The categorical fields that are unordered are marked as factors for the models to
+dummy encode.
+```{r}
+data <- read_xlsx("Employee-Attrition.xlsx", sheet = "sheet1")
+data <- as.data.frame(data)
+
+# Recode "Yes"/"No" to 1 and 0
+data$Attrition <- ifelse(data$Attrition == "Yes", 1, 0)
+
+# Convert columns to factor
+columns <- c("Attrition", "BusinessTravel", "Department", "EducationField",
+             "Gender", "JobLevel", "JobRole", "MaritalStatus", "OverTime")
+
+for (i in columns) {
+  data[,i] <- as.factor(data[,i]) }
+
+# Drop columns with no information
+data <- data[, -c(22, 10, 27, 9)]
+colnames(data)[2] <- tolower(colnames(data[2]))
+
+data %>% head(50) %>% datatable(caption = "Top 50 rows of the data",
+                                options = list(scrollY = "300px"))
+```
+
+There are `r ncol(data) - 1` possible predictors for `attrition` and `r nrow(data)`
+observations.<br><br>
+As seen in the table below, the data is imbalanced with only about 16% of the employees
+quitting. Ideally, the probability of the threshold will lie around this number.
+```{r}
+table(data$attrition) %>% as.data.frame() %>% rename("Attrition" = Var1) %>% 
+  mutate(Proportion = round(Freq / sum(Freq), 2)) %>% 
+  datatable(caption = "Attrition Proportions")
+```
+
+All models are trained on 70% of the data and the remaining are used for testing.
+Passing `attrition` column to `strata` argument ensures that the 0's and 1's of 
+the response are equally distributed.
+```{r}
+# Split to training and testing data
+set.seed(1804)
+data_split <- initial_split(data, prop = .7, strata = "attrition")
+data_train <- training(data_split)
+data_test  <- testing(data_split)
+```
+
+Different models require data to be passed differently, with some requiring predictors
+passed as a matrix.
+```{r}
+# Split dataset into response and predictor variables
+data_train_x <- model.matrix(attrition ~ ., data_train)[, -2]
+data_train_y <- as.factor(data_train$attrition)
+
+data_test_x <- model.matrix(attrition ~ ., data_test)[, -2]
+data_test_y <- as.factor(data_test$attrition)
+```
+
+Histograms of different columns is presented below.
+```{r fig.width=8, fig.height=45}
+histo_viz <- list()
+for (i in colnames(data[,-2])) {
+  if (class(data[,i]) == "factor") {
+    histo_viz[[i]] <- data %>% ggplot(aes_string(i)) + geom_bar() + theme_light()
+  } else {
+    histo_viz[[i]] <- data %>% ggplot(aes_string(i)) + geom_histogram() + theme_light()
+  }
+}
+grid.arrange(grobs = histo_viz, nrow = 15, ncol = 2)
+```
+
+# GLM - The Gold Standard
+
+Logistic regression works very similar to linear regression. All predictors on the
+right-hand-side of the equation are assigned a coefficient and added up. The 
+coefficients are calculated by minimizing the negative log-likelihood estimation, and 
+the sum of the predictors gives the log-odds or `logit` equivalent of the event occurring.
+
+<br>
+<center>$$\operatorname{logit} p = \ln \left( \frac{p}{1 - p} \right) = \beta_0 + \beta_1 x $$ </center><br>
+The probability is then calculated by exponentiating both sides and p will now be a
+number between 0 and 1. 
+<br><center>$$p = \frac{e^{\beta_0 + \beta_1 x}}{e^{\beta_0 + \beta_1 x}+1} $$</center><br>
+
+Since exponentials are introduced, changes in variables are not linear. That is, change in probability from 1 to 2 is much higher when compared to that of 10 to 20. To understand
+this better, let's look at a dummy example with one coefficient `rating`
+and an `intercept`.
+<center>$$y = intercept + coefficient * rating$$</center>
+```{r}
+rating <- c(0, 1, 2, 3, 4)
+intercept <- c(-2, -2, -2, -2, -2)
+coefficient <- c(2, 2, 2, 2, 2)
+y <- coefficient * rating + intercept
+
+data.frame(intercept, coefficient, rating, y) %>% 
+  mutate(probability = round((exp(y) / (exp(y) + 1)),3)) %>% 
+  datatable(caption = "Interpreting Logit", rownames = FALSE)
+```
+As seen in the table, y increases linearly with `rating`, whereas the probability doesn't. 
+Unit change in rating from 1 to 2 increases the probability by about 0.33 
+whereas unit change from 3 to 4 only causes a 0.016 change.<br><br>
+
+Along with logit, there are other ways of evaluating probability such as Probit
+and Complementary log-log links. We will not be covering them in this analysis.
+<!-- <u><a href="https://en.wikipedia.org/wiki/Generalized_linear_model#Probit_link_function_as_popular_choice_of_inverse_cumulative_distribution_function"target="_blank">probit</a></u>  -->
+<!-- and <u><a href="https://en.wikipedia.org/wiki/Generalized_linear_model#Complementary_log-log_(cloglog)/"target="_blank">complementary log-log</a></u> links.<br><br> -->
+
+
+
+## Basic Model
+A model with all the variables acting as predictors is built on the training data.
+The coefficients are plotted below. Hover over the dots to see them.
+```{r out.width = "100%", fig.height = 4}
+set.seed(1804)
+glm_model <- glm(attrition ~ ., data_train, family = binomial)
+
+glm_coef_tab <- coef(glm_model) %>% as.data.frame() %>% rownames_to_column("variable") %>%
+  rename("coefficient" = ".") %>% filter(coefficient != 0) 
+
+glm_coef_plot <- glm_coef_tab %>% ggplot(aes(coefficient, reorder(variable, coefficient), 
+                                             label = variable)) +
+  geom_point(show.legend = FALSE) + theme(text = element_text(size = 7)) + ylab("")
+
+glm_coef_plot %>% ggplotly(tooltip = c("coefficient", "variable")) %>% 
+  config(displayModeBar = F)
+```
+It appears that `r nrow(glm_coef_tab)` variables are being used in the model. There
+are a number of variables with very low coefficients. But that doesn't necessarily
+mean that they are less important. If the corresponding $X_i$ is large, they could
+have influence in estimating $y$. The ROC curve is plotted below.
+
+```{r fig.height=4, fig.width= 4}
+glm_predict <- predict(glm_model, data_test, type = "response")
+glm_roc_area <- round(roc(data_test$attrition, glm_predict)$auc, 3)
+
+prediction(glm_predict, data_test$attrition) %>%
+  performance("tpr", "fpr") %>%
+  plot(colorize = TRUE) %>% title(paste("Area under the curve =", glm_roc_area))
+```
+The area under the curve `r glm_roc_area` is a pretty good start.
+
+Let's apply the model on the test data. The threshold is set at 0.5, meaning an
+employee is tagged <i>will-quit</i> if the model gives a probability above 0.5. The confusion 
+matrix and the evaluation parameters are printed below.
+```{r}
+glm_eval <- conf_matrix(glm_predict, threshold = 0.5)
+
+glm_eval$matrix %>% datatable(caption = "GLM - Confusion Matrix")
+glm_eval$eval_params %>% datatable(caption = "GLM - Evaluation parameters")
+```
+As expected, the accuracy is really good, while the specificity is poor. This can
+be corrected by setting the right threshold. The `thres_tune` function is used
+and the top 10 results sorted by `cost` are printed below.
+
+```{r}
+glm_thres_tune <- thres_tune(glm_predict)
+glm_thres_tune %>% head(10) %>% datatable(caption = "GLM - Threshold tuning")
+```
+
+```{r echo = FALSE}
+glm_eval_thres <- conf_matrix(glm_predict,
+                              threshold = glm_thres_tune %>%
+                                dplyr::select("threshold") %>% head(1) %>% .[[1]])
+```
+
+The numbers are now more balanced, with a strong decrease in sensitivity. It's
+expected, and this is the best balance the model can come up with for the cost we
+defined earlier. The confusion matrix below for the best cost threshold shows that 
+`r glm_eval_thres$matrix[1,2]` employees who did not quit were marked as will-quit 
+while `r glm_eval_thres$matrix[2,1]` who did quit were not identified correctly.
+```{r}
+glm_eval_thres <- conf_matrix(glm_predict,
+                              threshold = glm_thres_tune %>%
+                                dplyr::select("threshold") %>% head(1) %>% .[[1]])
+
+glm_eval_thres$matrix %>% datatable(caption = "GLM threshold tuned - Confusion Matrix")
+```
+Keeping in mind that this is the most basic model possible, these numbers are great!
+
+# Regularization
+
+Regularization in regression can be thought of as penalty for complexity. It's used when the 
+number of features is high or there exists multicollinearity between the variables. 
+By penalizing the coefficients, overfitting is avoided and model interpretability is
+improved. Mathematically, this works by adding a penalty term $P$ to the 
+log-likelihood function of $\beta$. Ideally, as the penalty increases, the estimated
+coefficients decrease. The magnitude of the penalty is controlled by $\lambda$. We
+look into two types of regularization - `ridge` and `lasso`.
+
+<br><br><i>To simplify the mathematics, all equations below correspond to the response
+variable <b>y being continuous</b>.</i><br><br>
+
+<br><center>$$y_{predicted} = \hat{y_i} = \beta_0 + \beta_i * x_i $$</center>
+<br><center>$$minimize \{\sum{(y_i - \hat{y_i})^2} + \lambda P \} $$</center><br>
+
+where $\sum{(y_i - \hat{y_i})^2}$ is difference between original and observed y, squared
+to lose negative differences, and added. This is defined formally as $SSE$.
+
+Now, the reason this works is because
+<br><center>$P_{ridge} = \sum|\beta_i^2|$ and $P_{lasso} = \sum|\beta_i|$</center><br>
+
+That is, in case of ridge, owing to the minimization, the addition of $\beta^2$ forces
+the  magnitude of the coefficient to be as small as possible. In lasso, $|\beta|$ 
+can force coefficients all the way to zero if they don't help the model. This property
+of regularization is used as a variable selection method in modelling.<br><br>
+
+The effect of regularization on the coefficients is visualized below. Setting 
+$\lambda = 0$ makes it a general regression while $\lambda = \infty$ makes 
+all coefficients zero.
+
+```{r}
+regul_fit <- glmnet(x = data_train_x, y = data_train_y, family = "binomial", alpha = 1)
+plot(regul_fit, xvar = "lambda", label = TRUE)
+```
+
+$P_{lasso}$ and $P_{ridge}$ could be used together in conjunction to develop
+`Elasticnet` regression. This is done by introducing a second parameter $\alpha$, 
+setting which to 0 makes it a ridge regression while 1 makes it a lasso. Any value 
+between 0 and 1 would be elasticnet. The optimal value of $\lambda$ is calculated 
+by cross-validating on the training data. The full formula is
+
+<br><center>$$minimize \{SSE + \lambda[P_{ridge} (1-\alpha) + P_{lasso} (\alpha)] \} $$</center><br>
+
+The equation, <b><i>when y is binary</i></b>, is
+
+$$minimize\{(\sum{(-y_i * \beta_ix_i) + log(1+e^{\hat{y_i}})}) + (\lambda[P_{ridge} (1-\alpha) + P_{lasso} (\alpha)])\} $$
+
+A more detailed explanation of Lasso can be found in this <u><a href="https://www.sciencedirect.com/science/article/pii/S0378426614003823"target="_blank">research paper</a></u> on variable selection and corporate bankruptcy forecasts.
+
+
+## Lasso
+
+<i>Howdy partner?</i> <br><br>
+
+As explained, lasso regularization is analogous to throwing a rope to catch the coefficients 
+and bring them closer, if not all the way, to zero. A basic lasso regression with $\alpha$
+set to 1 is implemented below. Through cross validation on the training dataset,
+the $\lambda$ that minimizes the errors is estimated by the function, which is
+then passed while predicting on the test dataset. `lambda.min` is the value of 
+lambda with the lowest cross-validated error. `nfolds` is set at the default value of 10.
+```{r fig.height=4, fig.width= 4}
+set.seed(1804)
+lasso_model <- cv.glmnet(x = data_train_x, y = data_train_y, alpha = 1,
+                         family = "binomial", nfolds = 10)
+lasso_predict <- predict(lasso_model, s = lasso_model$lambda.min,
+                         data_test_x, type = "response")
+lasso_roc_area <- round(roc(data_test$attrition, lasso_predict)$auc, 3)
+
+prediction(lasso_predict, data_test$attrition) %>%
+  performance("tpr", "fpr") %>%
+  plot(colorize = TRUE) %>% title(paste("Area under the curve =", lasso_roc_area))
+```
+
+```{r echo = FALSE}
+lasso_coef_tab <- coef(lasso_model, s = "lambda.min") %>% as.array() %>% as.data.frame() %>%
+  rownames_to_column("variable") %>% rename("coefficient" = "1") %>% 
+  filter(coefficient != 0)
+```
+The calculated minimum $\lambda$ is `r lasso_model$lambda.min`. 
+The area under the curve is `r lasso_roc_area`, which is a slight decrease from
+the GLM model's. This could be because there was no overfitting in the first place. 
+However, the number of variables in the model has come down to `r nrow(lasso_coef_tab)`, 
+a sharp drop from the `r nrow(glm_coef_tab)` of the GLM model. The coefficients 
+and threshold-tuned evaluation parameters are presented below.
+
+```{r out.width = "100%", fig.height = 4}
+lasso_coef_tab <- coef(lasso_model, s = "lambda.min") %>% as.array() %>% as.data.frame() %>%
+  rownames_to_column("variable") %>% rename("coefficient" = "1") %>% 
+  filter(coefficient != 0)
+
+lasso_coef_plot <- lasso_coef_tab %>% ggplot(aes(coefficient, reorder(variable, coefficient),
+                                                 label = variable)) +
+  geom_point(show.legend = FALSE) + theme(text = element_text(size = 7)) + ylab("")
+
+lasso_coef_plot %>% ggplotly(tooltip = c("variable", "coefficient")) %>% config(displayModeBar = F)
+
+lasso_thres_tune <- thres_tune(lasso_predict)
+lasso_thres_tune %>% head(10) %>% datatable(caption = "Lasso - Threshold tuning")
+```
+
+## Tuning &lambda;
+
+In all of the estimations above, we used $\lambda_{min}$ to calculate the model
+coefficients. But since $\lambda_{min}$ comes from 10-fold cross validation, there 
+could be uncertainty. Choosing a $\lambda$ that is 1 standard error away from the
+minimum could still be just as useful on the test data predictions. $\lambda_{1se}$
+was calculated to be `r lasso_model$lambda.1se`.
+```{r fig.height=4, fig.width= 4}
+lasso_predict_1se <- predict(lasso_model, s = lasso_model$lambda.1se,
+                             data_test_x, type = "response")
+lasso_roc_area_1se <- round(roc(data_test$attrition, lasso_predict_1se)$auc, 3)
+
+prediction(lasso_predict_1se, data_test$attrition) %>%
+  performance("tpr", "fpr") %>%
+  plot(colorize = TRUE) %>% title(paste("Area under the curve =", lasso_roc_area_1se))
+```
+
+```{r out.width="100%", fig.height= 4}
+lasso_coef_tab_1se <- coef(lasso_model, s = "lambda.1se") %>% as.array() %>% as.data.frame() %>%
+  rownames_to_column("variable") %>% rename("coefficient" = "1") %>% 
+  filter(coefficient != 0)
+
+lasso_coef_plot_1se <- lasso_coef_tab_1se %>% 
+  ggplot(aes(coefficient, reorder(variable, coefficient), label = variable)) +
+  geom_point(show.legend = FALSE) + theme(text = element_text(size = 7)) + ylab("")
+
+lasso_coef_plot_1se %>% 
+  ggplotly(tooltip = c("variable", "coefficient")) %>% config(displayModeBar = F)
+```
+The area under the curve seems lower than before at `r lasso_roc_area_1se`, but the
+number of variables has sharply reduced again to `r nrow(lasso_coef_tab_1se)`.<br><br>
+
+<div class = "grey">
+<h3>Bias-Variance tradeoff </h3>
+<i>In all three models so far, the number of variables has come down from 
+`r nrow(glm_coef_tab)` to `r nrow(lasso_coef_tab)` and `r nrow(lasso_coef_tab_1se)`, 
+while the area under the curve has decreased from `r glm_roc_area` to `r lasso_roc_area` 
+and `r lasso_roc_area_1se` - Evidently there is a trend, and this is where the 
+bias-variance tradeoff comes in. Using more complex models will give better results 
+on average (low bias), but variance could be high on newer test data. But reducing 
+model complexity sacrifices accuracy.</i><br>
+<center>![](`r "https://github.com/mr-hn/classificationTech/blob/master/bias_variance.png?raw=true"`){width=40%}</center><br>
+
+<i><center>Any model should be viewed carefully as a balance of bias and variance.<center></i>
+</div>
+
+## Tuning &alpha;
+
+The final meTric up our regression sleeve is the choice of alpha. An elastic net 
+regularization with $\alpha$ between 0 to 1 might still improve the area under 
+the curve. In increments of 0.05, models are built for each value of alpha and 
+$\lambda_{min}$ and the area under the curve is calculated. Looks like the lasso 
+model was already performing the best.
+```{r}
+regularize_tuning <- expand.grid(alpha = seq(0, 1, by = 0.05),
+                                 auc = 0)
+
+for (i in 1:nrow(regularize_tuning)) {
+  set.seed(1804)
+  model <- cv.glmnet(x = data_train_x, y = data_train_y, family = "binomial",
+                     alpha = regularize_tuning$alpha[i], nfolds = 10)
+  
+  predict <- predict(lasso_model, s = model$lambda.min,
+                     data_test_x, type = "response")
+  
+  regularize_tuning$auc[i] <- round(roc(data_test$attrition, predict)$auc, 3)
+}
+
+regularize_tuning %>% dplyr::arrange(desc(auc)) %>% datatable(caption = "Tuning alpha")
+```
+
+With Bias-Variance tradeoff in mind, it would be ideal to choose the lasso model
+with $\lambda_{min}$ to be the best of the three.
+
+# Trees and Forests
+
+<button class="collapsibleHn">
+Decision Tree 
+</button><div class="contentHn"><p>
+
+Any dataset can be broken hierarchically into smaller subgroups. The observations
+can be grouped conditionally based on their values, and the conditions 
+can then be applied on new data to determine which subgroup the new observations 
+will belong to. Decision tree algorithms work on this idea. 
+
+The training data is grown into the largest tree possible to essentially give a 
+perfectly fitted model. The tree is then 'pruned' from the bottom until acceptable 
+levels of error is reached. Bias-variance makes an appearance here to determine 
+the number of branches to keep so that the model error and complexity is balanced 
+for the testing data.
+
+The idea of pruning is a little similar to penalty in regularized regression, incorporating 
+a cost-complexity parameter. Cross-validation is performed to get the optimal 
+amount of branches. To understand the idea better, a basic model is built with 10-fold 
+cross validation (`default xval = 10`) and no pruning (`cp = 0`).
+
+```{r}
+set.seed(1804)
+rpart_model <- rpart(attrition ~ ., data_train, method = "class",
+                     control = list(cp = 0, xval = 10))
+plotcp(rpart_model)
+```
+Oh, this was not expected. <br><br>
+
+The error must decrease with decreasing CP. The less you prune, lower the error.
+But since the data is imbalanced, some branches are ending up with all 1's, leading to
+inconsistent errors. This can be rectified by incorporating the cost of
+false negatives while pruning the tree.
+```{r}
+set.seed(1804)
+rpart_model <- rpart(attrition ~ ., data_train, method = "class",
+                     parms = list(split = "information", 
+                                  loss = matrix(c(0, 10, 1, 0), nrow = 2)), 
+                     control = list(cp = 0, xval = 10))
+plotcp(rpart_model)
+```
+
+That looks more like it! At a `cp` value of 0.0084, the cross-validated errors are
+low enough and therefore 32 subgroups or `terminal nodes` can give a good albeit 
+a little underfit model. The horizontal line here is the 1 standard error from the
+minimal error of the training data. The first point below the line must be chosen
+as the optimal terminal nodes. The actual tree for that value of CP is visualized below. 
+```{r out.width="100%", fig.height=4}
+set.seed(1804)
+rpart_model <- rpart(attrition ~ ., data_train, method = "class",
+                     parms = list(split = "information", 
+                                  loss = matrix(c(0,10,1,0), nrow = 2)),
+                     control = list(cp = 0.0051, xval = 10))
+
+rpart.plot(rpart_model, main = paste0("Pruned at CP = ",
+                                      rpart_model$cptable[nrow(rpart_model$cptable),1])) 
+```
+
+Time to apply the model and evaluate the performance on the test data.
+```{r fig.height=4, fig.width= 4}
+rpart_predict <- predict(rpart_model, data_test, type = "prob")[,2]
+
+rpart_roc_area <- round(roc(data_test$attrition, rpart_predict)$auc, 3)
+prediction(rpart_predict, data_test$attrition) %>%
+  performance("tpr", "fpr") %>%
+  plot(colorize = TRUE) %>% title(paste("Area under the curve =", rpart_roc_area))
+
+rpart_thres_one <- thres_tune(rpart_predict)
+rpart_thres_one %>% head(10) %>% datatable(caption = "Evaluation parameters of decision tree")
+```
+The results don't look great. The area under the curve is unusable at `r rpart_roc_area`.
+The CP could be tuned to look for better results. In addition to pruning, decision 
+trees can be further tuned by adjusting the `minsplit` and `maxdepth` parameters.
+
+<br><ul>
+<li>`minsplit` refers to the minimum number of observations that must exist in a 
+node before a split is attempted. The smaller the number, higher are the chances 
+of overfitting.</li> <br>
+<li>`maxdepth` corresponds to the total number of nodes between each terminal node 
+and root node. Higher the number, larger the tree, meaning it could lead to overfitting.</li>
+</ul><br>
+
+With this knowledge, we build a grid of models for different values of minsplit,
+maxdepth and CP. Since CP of 0.0051 did not give great results, it's reduced to 0.001 and
+increased in steps of 0.001, up to 0.01. The maxdepth is set to a range between 5 and 15,
+from the current 9.
+```{r}
+rpart_tuning <- expand.grid(minsplit = seq(5, 20, 1),
+                            maxdepth = seq(5, 15, 1),
+                            cp = seq(0.001, 0.01, 0.001),
+                            auc = 0)
+
+for (i in 1:nrow(rpart_tuning)) {
+  set.seed(1804)
+  
+  model <- rpart(attrition ~ ., data_train, method = "class",
+                 parms = list(split = "information", 
+                              loss = matrix(c(0,10,1,0), nrow = 2)),
+                 control = list(cp = rpart_tuning$cp[i],
+                                minsplit = rpart_tuning$minsplit[i],
+                                maxdepth = rpart_tuning$maxdepth[i]))
+  
+  predict <- predict(model, data_test, type = "prob")[,2]
+  rpart_tuning$auc[i] <- round(roc(data_test$attrition, predict)$auc, 3)
+}
+
+rpart_best_params <- rpart_tuning %>% arrange(desc(auc)) 
+rpart_best_params %>% datatable(caption = "Model parameters that produce the highest AUCs")
+```
+The results improve only a little. The area under the curve remains the same for
+a large range of `min.split` and `max.depth = 5`indicating that shorter trees/ less 
+complex models have better prediction accuracty. Here's a look at the model with 
+the best performance.
+
+```{r out.width="100%", fig.height=4}
+set.seed(1804)
+rpart_best_model <- rpart(attrition ~ ., data_train, method = "class",
+                          parms = list(split = "information", 
+                                       loss = matrix(c(0,10,1,0), nrow = 2)),
+                          control = list(cp = rpart_best_params$cp[1],
+                                         minsplit = rpart_best_params$minsplit[1],
+                                         maxdepth = rpart_best_params$maxdepth[1]))
+rpart.plot(rpart_best_model, main = paste0("Pruned at CP = ",
+                                           rpart_best_model$cptable[nrow(rpart_best_model$cptable),1]))
+```
+
+A clear demonstration of the drawback of decision trees - The model depends heavily
+on the training data and adapts very poorly to anyting new. Thus, a more general model
+(less complex, shorter) is fitting better on the testing data. <br><br>
+
+To further establish this dependence, let's build more trees with the only
+difference between them being the sampled training data. The `variable importance`
+of each model is calculated and plotted in the gif below. Variable importance
+will be covered in detail in the later sections, but the gif illustrates the
+substantial changes to the importance order of the variables and their AUC for
+different models that differ only in the training data.
+
+```{r eval = FALSE}
+# ```{r eval = FALSE} # Not evaluated. RPubs does not allow hosting gifs.
+gif_data <- data.frame()
+
+for (i in 1:25) {
+  
+  set.seed(NULL)
+  train_prop <- runif(1, min = 0.6, max = 0.9)
+  gif_data_split <- initial_split(data, prop = train_prop, strata = "attrition")
+  gif_data_train <- training(gif_data_split)
+  gif_data_test  <- testing(gif_data_split)
+  
+  gif_rpart_model <- rpart(attrition ~ ., gif_data_train, method = "class",
+                           parms = list(split = "information", 
+                                        loss = matrix(c(0, 10, 1, 0), nrow = 2)),
+                           control = list(xval = 10))
+  
+  gif_rpart_predict <- predict(gif_rpart_model, gif_data_test, type = "prob")[,2]
+  gif_rpart_auc <- round(roc(gif_data_test$attrition, gif_rpart_predict)$auc, 3)
+  
+  var_imp <- varImp(gif_rpart_model) %>% rownames_to_column("Variable") %>% 
+    arrange(desc(Overall)) 
+  
+  gif_data <- bind_rows(gif_data,
+                        data.frame(iteration = rep(i, 10),
+                                   roc_area_train = rep(gif_rpart_auc, 10),
+                                   variable = var_imp[1],
+                                   importance = var_imp[2]))
+}
+
+gif_data <- gif_data %>% group_by(iteration) %>%
+  mutate(ordering = row_number(Overall) * 1) %>% ungroup()
+
+a <- gif_data %>% 
+  ggplot(aes(x = ordering, group = Variable)) +
+  geom_tile(aes(y = Overall/2, 
+                height = Overall,
+                width = 0.8), fill = "gray60") +
+  geom_text(aes(y = 0, label = Variable), hjust = 0, size = 3) +
+  coord_flip(clip = "off", expand = FALSE) + theme_light() +
+  geom_tile(aes(y = round(roc_area_train * 300, 2), 
+                height = 2,
+                width = 4), fill = "black") +
+  geom_text(aes(x = 27, y = round(roc_area_train * 300 + 10), 
+                label = round(roc_area_train * 100, 2)),
+            size = 3) + 
+  theme(axis.ticks.y = element_blank(),
+        axis.text.y  = element_blank()) +
+  labs(x = " ", y = "Variable Importance") +
+  transition_states(iteration, 
+                    transition_length = 2, state_length = 1) +
+  ease_aes("cubic-in-out") + labs(title = 'Iteration: {closest_state}')
+
+animate(a, fps = 30, nframes = 750)
+```
+<i>Rpubs has some trouble hosting gifs. Click to view it on giphy.</i><br>
+
+<iframe src="https://giphy.com/embed/4PY49YFNgh1ZdWlwBx" width="480" height="480" frameBorder="0" class="giphy-embed" allowFullScreen></iframe><p><a href="https://giphy.com/gifs/4PY49YFNgh1ZdWlwBx">via GIPHY</a></p>
+
+</p></div>
+
+<button class="collapsibleHn">
+Bagging
+</button><div class="contentHn"><p>
+
+We modelled multiple trees earlier and observed different results. What if the approach 
+is taken a little further, where data is bootstrap sampled into multiple chunks and trees are grown over each chunk and averaged? That's the idea behind <b>b</b>ootstrap <b>agg</b>regat<b>ing</b>. The concept is simple and it solves decision tree's 
+drawback of poor adaptability on new data. Below is a basic bagging model. We see 
+an immediate jump in the area under the curve.
+```{r fig.height=4, fig.width= 4}
+set.seed(1804)
+bag_model <- bagging(formula = attrition ~ ., data_train, coob = FALSE)
+bag_predict <- predict(bag_model, data_test, type = "prob")[,2]
+
+bag_roc_area <- round(roc(data_test$attrition, bag_predict)$auc, 3)
+prediction(bag_predict, data_test$attrition) %>%
+  performance("tpr", "fpr") %>%
+  plot(colorize = TRUE) %>% title(paste("Area under the curve =", bag_roc_area))
+```
+Bootstrap brings with it the <u><a href="http://www.stat.cmu.edu/~brian/724/week11/lec27-bootstrap.pdf"target="_blank">
+632 rule</a></u>. What this means is that, any bootstrap sample, on average will 
+contain only 63.2% unique records. The remaining one-third of the training data - 
+called the out-of-bag data can be used to estimate prediction error within the model 
+by setting `coob = TRUE`. But owing to our dataset being imbalanced this provision
+is not being used.
+
+The trees are grown over bootstrap sampled data chunks. That is, they are sampled
+randomly, with replacement. By default, 25 trees are grown. This can be adjusted
+to look for improvement in performance. Evidently there is a good increase, reaching
+levels similar to that of our good old GLM.
+```{r}
+bag_tuning <- expand.grid(ntree = seq(10, 100, by = 1),
+                          auc = 0)
+
+for (i in 1:nrow(bag_tuning)) {
+  set.seed(1804)  
+  bag_models <- bagging(attrition ~ ., data_train, nbagg = bag_tuning$ntree[i])
+  bag_models_predict <- predict(bag_models, data_test, type = "prob")[,2]
+  
+  bag_tuning$auc[i] <- round(roc(data_test$attrition, bag_models_predict)$auc, 3)
+}
+
+bag_tuning %>% arrange(desc(auc)) %>% head(20) %>% 
+  datatable(caption = "Tuned bagging results")
+```
+
+To observe how the ensemble learning works, the AUC is plotted against the number
+of trees and the gradual increase is clearly observed.
+
+```{r}
+bag_tuning %>% ggplot(aes(ntree, auc)) + geom_point() + theme_light()
+```
+
+The model with the highest AUC is applied on the test data and the probability
+cutoff is tuned to evaluate the best cost. We observe the specificity going above
+90% for the first time and cost dropping below 0.6. This is the best model so far, even
+better than GLM's cost of 0.63.
+```{r}
+bag_best_params <- bag_tuning %>% arrange(desc(auc)) %>% head(1)
+set.seed(1804)
+bag_best_model <- bagging(attrition ~ ., data_train, coob = FALSE,
+                          nbagg = bag_best_params$ntree[1])
+
+bag_best_predict <- predict(bag_best_model, data_test, type = "prob")[,2]
+
+bag_best_thres_tune <- thres_tune(bag_best_predict)
+bag_best_thres_tune %>% head(20) %>% 
+  datatable(caption = "Threshold tuning on the best model")
+```
+</p></div>
+
+<button class="collapsibleHn">
+Random Forest
+</button><div class="contentHn"><p>
+
+Bagging is a great idea and it seems to work well too. The performance could be
+enhanced by introducing another level of randomness. Random forest works very similar
+to bagging, with an additional `mtry` parameter that randomly restricts the number 
+of chosen variables that can be used to build each tree. It essentially forces
+each tree to be different from one another, coercing all variables to be used in 
+building the model. Setting `mtry` equal to the number of variables is the same as bagging. 
+The rule of thumb in classification problems is to set mtry at the square root of
+the number of variables. In our case, it's 5. A simple model is built below using 
+`Ranger` package. `num.trees` here refers to the number of bootstrap sampled 
+trees to be built, same as `n_bagg`, and for now, it's set to 60 trees.
+
+```{r fig.height=4, fig.width= 4}
+ranger_model <- ranger(attrition ~ ., data_train, num.trees = 60, verbose = FALSE,
+                       seed = 1804, probability = TRUE, 
+                       mtry = round(sqrt(ncol(data) - 1)))
+
+ranger_predict <- predict(ranger_model, data_test)$predictions[,2]
+
+ranger_roc_area <- round(roc(data_test$attrition, ranger_predict)$auc, 3)
+
+prediction(ranger_predict, data_test$attrition) %>%
+  performance("tpr", "fpr") %>%
+  plot(colorize = TRUE) %>% title(paste("Area under the curve =", ranger_roc_area))
+```
+The result looks pretty good with an AUC of `r ranger_roc_area`.<br><br>
+
+Like every other model so far, it's tuning time. The `num.trees` is set to vary
+between 10 to 100, the same numbers we chose for bagging. `mtry` ranges between
+3 to 7 and `min.node.size` is set to be between 1 to 5.<br><br>
+
+The performance gains are significant again, with the AUC crossing the 0.8 mark.
+```{r}
+ranger_tuning <- expand.grid(num_trees = seq(10, 100, by = 1),
+                             mtry = seq(3, 7),
+                             min_nodes = seq(1, 5),
+                             auc = 0)
+
+for (i in 1:nrow(ranger_tuning)) {
+  
+  model <- ranger(attrition ~ ., data_train, verbose = FALSE, seed = 1804, 
+                  probability = TRUE, 
+                  num.trees = ranger_tuning$num_trees[i], 
+                  mtry = ranger_tuning$mtry[i], 
+                  min.node.size = ranger_tuning$node_size[i])
+  
+  predict <- predict(model, data_test)$predictions[,2]
+  ranger_tuning$auc[i] <- round(roc(data_test$attrition, predict)$auc, 3)
+}
+
+ranger_tuning %>% arrange(desc(auc)) %>% head(50) %>% 
+  datatable(caption = "Tuned random forest results")
+```
+
+The best model is applied to the test data and cost is evaluated. Looks like the
+same level of AUC improvement is not being reflected on the cost. It remains in the
+same level as that of bagging. However, the top 20 results have a cost lower than
+0.7, while cost of bagging went up to 0.95. This stability leads us to conclude that 
+random forest is a better model than bagging for our data.
+```{r}
+ranger_best_params <- ranger_tuning %>% dplyr::arrange(desc(auc)) %>% head(1)
+
+ranger_best_model <- ranger(attrition ~ ., data_train, verbose = FALSE, seed = 1804, 
+                            probability = TRUE, 
+                            num.trees = ranger_best_params$num_trees, 
+                            mtry = ranger_best_params$mtry, 
+                            min.node.size = ranger_best_params$node_size)
+
+ranger_best_predict <- predict(ranger_best_model, data_test)$predictions[,2]
+
+ranger_best_thres_tune <- thres_tune(ranger_best_predict)
+ranger_best_thres_tune %>% head(20) %>% 
+  datatable(caption = "Threshold tuning on best model")
+```
+
+Unlike regression techniques, random forests suffer from the lack of interpretability.
+The best it can do is tell us the 'importance' of each variable. There are a couple
+of methods of measuring this importance, and both make use of the bootstrap
+out-of-bag error.<br>
+
+<ul>
+<li>`Impurity` - Calculates the improvement in out-of-bag error caused by each variable across all
+nodes and trees and averages. Higher the average, higher is the importance.</li><br>
+<li>`Permutation` - Calculates the drop in error if the actual values of a variable passed to the
+trees during training are altered randomly. Higher the drop, higher the importance.</li>
+</ul><br>
+
+The importance of different variables, based on impurity and permutation are both
+visualized for the best model that was evaluated earlier.
+
+```{r fig.width=8, fig.height = 6}
+ranger_model_imp <- ranger(attrition ~ ., data_train, verbose = FALSE, seed = 1804, 
+                           probability = TRUE, 
+                           num.trees = ranger_best_params$num_trees, 
+                           mtry = ranger_best_params$mtry, 
+                           min.node.size = ranger_best_params$node_size,
+                           importance = "impurity")
+
+ranger_model_per <- ranger(attrition ~ ., data_train, verbose = FALSE, seed = 1804, 
+                           probability = TRUE, 
+                           num.trees = ranger_best_params$num_trees, 
+                           mtry = ranger_best_params$mtry, 
+                           min.node.size = ranger_best_params$node_size,
+                           importance = "permutation")
+
+grid.arrange(ranger_model_imp$variable.importance %>% as.data.frame() %>%
+               rename("Importance (Impurity)" = ".") %>%
+               rownames_to_column("Variable") %>% arrange(Variable) %>%
+               ggplot(aes(`Importance (Impurity)`, reorder(Variable, `Importance (Impurity)`))) +
+               geom_point() + theme_light() + theme(axis.title.y = element_blank()),
+             
+             ranger_model_per$variable.importance %>% as.data.frame() %>%
+               rename("Importance (Permutation)" = ".") %>%
+               rownames_to_column("Variable") %>% arrange(Variable) %>%
+               ggplot(aes(`Importance (Permutation)`, reorder(Variable, `Importance (Permutation)`))) +
+               geom_point() + theme_light() + theme(axis.title.y = element_blank()),
+             ncol = 2, nrow = 1) 
+```
+</p></div>
+
+# Boosting
+
+Gradient Boosting Machines are considered the latest and greatest in the world of
+machine learning. All the tree-based techniques so far have randomly modelled trees
+and averaged to reach the optimum. GBM's however, model trees sequentially, learning
+from the errors of weaker trees. The term `Boosting` here refers to iteratively improving 
+the sequence of decision trees. `Gradient` refers to the negative slope of drop in 
+errors. Tree models are grown sequentially, improving as the error decreases at each 
+step, continuing until the slope flattens out or starts going up. Model is
+cross-validated at each step to measure the error. The iterative direction of the
+model growth is based on maximum reduction in error.<br><br>
+
+The important parameters in GBM modelling are listed below.
+<br><br><ul>
+<li> `n.trees` is the maximum number of trees the model can grow.</li><br>
+<li>`shrinkage` is the learning rate at each step. Lower the number, slower, but 
+without the risk of missing an optimum point. If it is too low, then the `n.trees` 
+should be high enough, giving enough chance for the model to learn</li><br>
+<li>`cv.folds` cross validation size</li><br>
+<li>`bag.fraction` is fraction of training data randomly selected to propose
+the next tree in the expansion.</li><br>
+<li>`interaction.depth` maximum depth of each tree. Can be as low as 1.</li><br>
+<li>`n.minobsinnode` minimum number of observations in the terminal node.</li><br>
+</ul><br>
+
+A basic implementation is shown below with maximum number of trees set at 1000, a
+matching 0.1 shrinkage and max depth at 3. The interaction between the number of 
+trees and cross validation error is observed in the plot below.
+```{r}
+# Factor converted to numeric
+data_train_num <- data_train
+data_train_num$attrition <- as.integer(data_train_num$attrition) - 1
+set.seed(1804)
+
+gbm_model <- gbm(attrition ~ ., data = data_train_num, distribution = "bernoulli",
+                 cv.folds = 5, n.trees = 1000, shrinkage = 0.1, verbose = FALSE,
+                 interaction.depth = 3)
+
+data.frame(num_trees = 1:gbm_model$n.trees,
+           cv_error = gbm_model$cv.error,
+           train_error = gbm_model$train.error) %>% 
+  gather(key = "error_type", value = "error", cv_error, train_error) %>%
+  ggplot(aes(x = num_trees, y = error, color = error_type )) + 
+  geom_line() + 
+  geom_vline(xintercept = which.min(gbm_model$cv.error)) +
+  labs(x = "Number of Iterations", y = "Misclassification Rate") + theme_light() +
+  annotate("text", x = which.min(gbm_model$cv.error) + 50, y = 0.01, 
+           label = which.min(gbm_model$cv.error)) +
+  theme(legend.position = c(0.87,0.7), legend.title = element_blank())
+```
+
+It appears that the model reaches optimum performance with just `r gbm.perf(gbm_model, plot.it = FALSE)` trees. It is to be noted that this tree count applies only to this specific 
+set of hyper parameters. The model is applied on the test data and probability 
+cutoff is tuned. The results look pretty good.
+```{r fig.height=4, fig.width=4}
+gbm_predict <- predict(gbm_model, data_test, type = "response", 
+                       n.trees =  gbm.perf(gbm_model, plot.it = FALSE))
+
+gbm_roc_area <- round(roc(data_test$attrition, gbm_predict)$auc, 3)
+
+prediction(gbm_predict, data_test$attrition) %>%
+  performance("tpr", "fpr") %>%
+  plot(colorize = TRUE) %>% title(paste("Area under the curve =", gbm_roc_area))
+
+thres_tune(gbm_predict) %>% datatable(caption = "Evaluation parameters of Gradient Boosting")
+```
+
+The hyperparameters can be tuned to improve performance. Although we observed peak 
+performance with `r gbm.perf(gbm_model, plot.it = FALSE)` trees, we continue to 
+work with 1000 trees since lower shrinkage values are being tuned for. The
+advantage of building a larger tree, owing to the sequentiality is that the tree 
+size could be controlled during prediction, removing the need for a smaller tree model.
+Shrinkage is adjusted around the initial 0.1 and interaction depth is allowed to reduce to 1.
+The minimum number of observations in terminal node is allowed to be higher as 
+this limits overfitting. The bag fraction is also varied. The top models sorted 
+by ROC area are printed below.
+```{r}
+gbm_tuning <- expand.grid(shrinkage = c(0.05, 0.1, 0.15),
+                          interaction_depth = c(1, 3), 
+                          node_min_obs = c(4, 6, 8),
+                          bag_fraction = c(0.75, 0.9),
+                          tree_count = 0,
+                          auc = 0)
+
+for (i in 1:nrow(gbm_tuning)) {
+  set.seed(1804)
+  
+  model <- gbm(attrition ~ ., data = data_train_num, distribution = "bernoulli",
+               cv.folds = 5, n.trees = 1000, verbose = FALSE,
+               shrinkage = gbm_tuning$shrinkage[i],
+               interaction.depth = gbm_tuning$interaction_depth[i],
+               n.minobsinnode = gbm_tuning$node_min_obs[i],
+               bag.fraction = gbm_tuning$bag_fraction[i])
+  
+  predict <- predict(model, data_test, type = "response",
+                     n.trees =  gbm.perf(gbm_model, plot.it = FALSE))
+  
+  gbm_tuning$tree_count[i] <- gbm.perf(model, plot.it = FALSE)
+  gbm_tuning$auc[i] <- round(roc(data_test$attrition, predict)$auc, 4)
+}
+
+gbm_tuning %>% dplyr::arrange(desc(auc)) %>% head(20) %>% 
+  datatable(caption = "GBM - Hyperparameter tuning")
+```
+The 36-model grid took 21 minutes to run and this is one of the huge drawbacks of GBM. They are 
+extremely resource intensive. We see small improvements over the original model. Probability
+cutoff is tuned for the best model and the results observed are good, but not great.
+
+```{r}
+set.seed(1804)
+gbm_best_params <- gbm_tuning %>% dplyr::arrange(desc(auc)) %>% head(1)
+
+gbm_best_model <- gbm(attrition ~ ., data = data_train_num, distribution = "bernoulli",
+                      cv.folds = 5, verbose = FALSE,
+                      n.trees = 1000,
+                      shrinkage = gbm_best_params$shrinkage,
+                      interaction.depth = gbm_best_params$interaction_depth,
+                      n.minobsinnode = gbm_best_params$node_min_obs,
+                      bag.fraction = gbm_best_params$bag_fraction)
+
+gbm_best_predict <- predict(gbm_best_model, data_test, type = "response", 
+                            n.trees =  gbm.perf(gbm_best_model, plot.it = FALSE))
+
+gbm_best_thres_tune <- thres_tune(gbm_best_predict)
+gbm_best_thres_tune %>% head(20) %>% 
+  datatable(caption = "Threshold tuning on best model")
+```
+Hypergrid tuning helped improve the cost, but it still does not outperform GLM or
+random forest. A second weakness of GBM - Since it is not possible to pass the
+cost function, it does not perform as well on imbalanced data. We see a large
+number of false negatives increasing the cost. There is however,
+a huge leap in performance over a solitary decision tree, and we do observe the 
+gradient descent learning.Random forest performed better though. <br><br>
+
+The relative influence of each variable is visualized for the best model.
+```{r out.width="100%"}
+gbm_var_imp <- summary(gbm_best_model, cBars = ncol(data),
+                       method = relative.influence, las = 2, plotit = FALSE) %>% 
+  mutate(relative_infl = round(rel.inf, 3)) %>% 
+  ggplot(aes(label = var)) + ylab("") +
+  geom_point(aes(relative_infl, reorder(var,relative_infl)),show.legend = FALSE) 
+
+gbm_var_imp %>% ggplotly(tooltip = c("var", "relative_infl")) %>% config(displayModeBar = F)
+```
+
+# Summary
+
+A table of the numbers from the best models of the last section is presented. It's emphasized
+again that these models are chosen purely based on the best `cost` that we defined and that
+the number of false negatives could be adjusted by altering the threshold.
+```{r}
+bind_rows(glm_thres_tune %>% head(1),
+          lasso_thres_tune %>% head(1),
+          rpart_thres_one %>% head(1),
+          bag_best_thres_tune %>% head(1),
+          ranger_best_thres_tune %>% head(1),
+          gbm_best_thres_tune %>% head(1)) %>% 
+  bind_cols(auc = c(glm_roc_area,
+                    lasso_roc_area,
+                    rpart_roc_area,
+                    bag_tuning %>% arrange(desc(auc)) %>% head(1) %>% .$auc,
+                    ranger_tuning %>% arrange(desc(auc)) %>% head(1) %>% .$auc,
+                    gbm_tuning %>% arrange(desc(auc)) %>% head(1) %>% .$auc),
+            model = c("Basic GLM",
+                      "Lasso Regularized",
+                      "Decision Tree", 
+                      "Bagging",
+                      "Random Forest",
+                      "Gradient Boosting")) %>% 
+  select(model, auc, accuracy, threshold, false_positives, false_negatives, cost) %>%
+  datatable(caption = "Summary", options = list(autoWidth = FALSE))
+```
+GLM did good!<br><br>
+Although it did not have the best cost, it was comparable to that of random forest
+and GBM. All of that with a single line of code, that took fractions of a second
+to model. Interpretability is easy as well! For a technique with its root
+in the <u><a href="https://papers.tinbergen.nl/02119.pdf"target="_blank">19th century</a></u>,
+this is remarkable.<br><br>
+
+Here comes the "however": The data we worked on was very clean. There was no
+processing required, and the variables were well distributed. Had that not been the
+case, we would have observed larger differences between model performances. And of
+course, there was random forest that performed better. The decimal differences 
+between the performances could translate to millions in the real world.<br><br>
+
+So the takeaway from this report is that GLMs are a great place to start modelling
+with the data. They do a pretty good job, and give an idea of what to expect, while
+being extremely easy to implement. And for this reason they will continue being
+popular and used regularly in the field of data science.
+<br><br>
+<br><br>
+Source files can be found <u><a href="https://github.com/mr-hn/classificationTech"target="_blank">here</a></u>.<br><br>
+<u><a href="https://linkedin.com/in/harish-morekonda"target="_blank">LinkedIn</a></u>
+
+<!-- Javascript for click to expand -->
+<script>
+var coll = document.getElementsByClassName("collapsibleHn");
+var i;
+
+for (i = 0; i < coll.length; i++) {
+coll[i].addEventListener("click", function() {
+this.classList.toggle("activeHn");
+var content = this.nextElementSibling;
+if (content.style.maxHeight){
+content.style.maxHeight = null;
+} else {
+content.style.maxHeight = content.scrollHeight + "px";
+}
+});
+}
+</script>
+<!-- End of Javascript -->

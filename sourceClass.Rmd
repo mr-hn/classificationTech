@@ -7,7 +7,7 @@ output:
     code_folding: hide
     thumbnails: false
     gallery: true
-    cards: false
+    cards: true
 ---
 <font size="5"> <span style="color:#2f4f4f">
 Does Regression hold it's own in the age of Machine Learning?  
